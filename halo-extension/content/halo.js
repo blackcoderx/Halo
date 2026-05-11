@@ -111,9 +111,22 @@ class AudioPlayer {
   }
 }
 
-// ── HaloSession ───────────────────────────────────────────────────────────────
+// ── Sprite state config (from pet-extension/shared/state-machine.js) ──────────
 
-const STATES = ['idle', 'listening', 'thinking', 'speaking', 'acting'];
+const STATE_CONFIG = {
+  idle:      { row: 8, frames: 6, durationMs: 150 },
+  listening: { row: 3, frames: 4, durationMs: 120 },
+  thinking:  { row: 0, frames: 6, durationMs: 140 },
+  speaking:  { row: 7, frames: 6, durationMs: 120 },
+  acting:    { row: 1, frames: 8, durationMs: 100 },
+};
+
+const SPRITE_CELL_W = 192;
+const SPRITE_CELL_H = 208;
+const RENDER_W = 96;
+const RENDER_H = 104;
+
+// ── HaloSession ───────────────────────────────────────────────────────────────
 
 class HaloSession {
   constructor() {
@@ -123,7 +136,11 @@ class HaloSession {
     this.tools = new HaloTools();  // defined in tools.js, loaded before this file
     this.state = 'idle';
     this.container = null;
-    this.sprite = null;
+    this.canvas = null;
+    this.ctx = null;
+    this.spritesheet = null;
+    this.currentFrame = 0;
+    this.frameTimer = null;
     this.tooltip = null;
     this._dragOffset = { x: 0, y: 0 };
     this._dragging = false;
@@ -131,13 +148,20 @@ class HaloSession {
   }
 
   async init() {
+    this._buildDOM();
+    this._setupDrag();
+
+    // Load spritesheet then start idle animation
+    const img = new Image();
+    img.src = chrome.runtime.getURL('assets/spritesheet.webp');
+    await img.decode();
+    this.spritesheet = img;
+    this._setState('idle');
+
     // Restore visibility from storage
     chrome.storage.sync.get('haloVisible', ({ haloVisible }) => {
       if (haloVisible) this.container.classList.add('halo-visible');
     });
-
-    this._buildDOM();
-    this._setupDrag();
 
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg.type === 'TOGGLE_HALO') this._toggleVisibility();
@@ -145,36 +169,53 @@ class HaloSession {
   }
 
   _buildDOM() {
-    // Remove any stale instance (e.g. hot reload)
     document.getElementById('halo-container')?.remove();
 
     this.container = document.createElement('div');
     this.container.id = 'halo-container';
 
-    this.sprite = document.createElement('div');
-    this.sprite.id = 'halo-sprite';
-    this.sprite.style.backgroundImage = `url('${chrome.runtime.getURL('assets/spritesheet.webp')}')`;
-    this.sprite.classList.add('state-idle');
-    // Drag offset needs to account for the corrected 128px width
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = RENDER_W;
+    this.canvas.height = RENDER_H;
+    this.ctx = this.canvas.getContext('2d');
 
     this.tooltip = document.createElement('div');
     this.tooltip.id = 'halo-tooltip';
 
-    this.container.appendChild(this.sprite);
+    this.container.appendChild(this.canvas);
     this.container.appendChild(this.tooltip);
     document.body.appendChild(this.container);
 
     // Click = toggle session (only if not dragging)
-    this.sprite.addEventListener('click', () => {
+    this.canvas.addEventListener('click', () => {
       if (this._hasMoved) return;
       this.ws ? this._endSession() : this._startSession();
     });
   }
 
   _setState(state) {
-    STATES.forEach(s => this.sprite.classList.remove(`state-${s}`));
-    this.sprite.classList.add(`state-${state}`);
     this.state = state;
+    this.currentFrame = 0;
+    clearInterval(this.frameTimer);
+    const cfg = STATE_CONFIG[state];
+    if (!cfg) return;
+    this._renderFrame();
+    this.frameTimer = setInterval(() => {
+      this.currentFrame = (this.currentFrame + 1) % cfg.frames;
+      this._renderFrame();
+    }, cfg.durationMs);
+  }
+
+  _renderFrame() {
+    const cfg = STATE_CONFIG[this.state];
+    if (!cfg || !this.ctx || !this.spritesheet) return;
+    this.ctx.clearRect(0, 0, RENDER_W, RENDER_H);
+    this.ctx.drawImage(
+      this.spritesheet,
+      this.currentFrame * SPRITE_CELL_W, cfg.row * SPRITE_CELL_H,
+      SPRITE_CELL_W, SPRITE_CELL_H,
+      0, 0, RENDER_W, RENDER_H
+    );
   }
 
   _showTooltip(text, duration = 3000) {
@@ -339,6 +380,7 @@ class HaloSession {
     this.player.interrupt();
     this.ws?.close();
     this.ws = null;
+    clearInterval(this.frameTimer);
     this._setState('idle');
     this._showTooltip('Session ended', 2000);
   }
