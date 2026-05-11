@@ -1,0 +1,119 @@
+/*
+  Halo — sprite overlay styles
+  Spritesheet: 1536×1872px, 8 rows × 6 cols, each frame 256×234px
+  Display at half scale: 128×104px (height trimmed ~10px to crop feet/artifacts)
+  background-size: 768px 936px (1536/2 × 1872/2)
+
+  Row layout (0-indexed, Y offsets at half scale = 117px per row):
+    Row 0 (y=0):    idle / standing   — 6 frames
+    Row 1 (y=-117): listening/walk    — 6 frames
+    Row 2 (y=-234): thinking/run      — 6 frames
+    Row 3 (y=-351): speaking          — 6 frames
+    Row 4 (y=-468): speaking alt      — 6 frames (red highlight)
+    Row 5 (y=-585): acting            — 6 frames (green highlight)
+    Row 6 (y=-702): extra             — 6 frames
+    Row 7 (y=-819): extra             — 6 frames
+*/
+
+#halo-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 128px;
+  height: 104px; /* trimmed from 117 to clip bottom artifacts */
+  overflow: hidden;
+  z-index: 2147483647;
+  cursor: pointer;
+  user-select: none;
+  display: none;
+  touch-action: none;
+}
+
+#halo-container.halo-visible {
+  display: block;
+}
+
+#halo-sprite {
+  width: 128px;
+  height: 117px; /* full frame height — container clips the bottom 13px */
+  background-repeat: no-repeat;
+  background-size: 768px 936px; /* half of 1536×1872 */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  /* backgroundImage set by halo.js at runtime via chrome.runtime.getURL */
+}
+
+/* ── State animations ─────────────────────────────────────────────────────── */
+
+/* idle: row 0, 6 frames, step -768px (6 × 128px) */
+#halo-sprite.state-idle {
+  animation: halo-idle 1s steps(6) infinite;
+}
+@keyframes halo-idle {
+  from { background-position: 0px 0px; }
+  to   { background-position: -768px 0px; }
+}
+
+/* listening: row 1, 6 frames */
+#halo-sprite.state-listening {
+  animation: halo-listen 0.6s steps(6) infinite;
+}
+@keyframes halo-listen {
+  from { background-position: 0px -117px; }
+  to   { background-position: -768px -117px; }
+}
+
+/* thinking: row 2, 6 frames */
+#halo-sprite.state-thinking {
+  animation: halo-think 0.8s steps(6) infinite;
+}
+@keyframes halo-think {
+  from { background-position: 0px -234px; }
+  to   { background-position: -768px -234px; }
+}
+
+/* speaking: row 3, 6 frames */
+#halo-sprite.state-speaking {
+  animation: halo-speak 0.4s steps(6) infinite;
+}
+@keyframes halo-speak {
+  from { background-position: 0px -351px; }
+  to   { background-position: -768px -351px; }
+}
+
+/* acting / tool executing: row 5 (green highlight), 6 frames */
+#halo-sprite.state-acting {
+  animation: halo-act 0.4s steps(6) infinite;
+}
+@keyframes halo-act {
+  from { background-position: 0px -585px; }
+  to   { background-position: -768px -585px; }
+}
+
+/* ── Tooltip bubble ───────────────────────────────────────────────────────── */
+
+#halo-tooltip {
+  position: absolute;
+  bottom: 110px;
+  right: 0;
+  background: rgba(10, 10, 20, 0.92);
+  color: #e0e0e0;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.2s, transform 0.2s;
+  max-width: 220px;
+  white-space: normal;
+  text-align: right;
+}
+
+#halo-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}

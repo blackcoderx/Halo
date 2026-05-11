@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 300px;
+      padding: 16px;
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+      background: #0f0f13;
+      color: #e0e0e0;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .header h1 { font-size: 18px; font-weight: 700; letter-spacing: 2px; color: #fff; }
+    .header .sub { font-size: 11px; color: #888; }
+    label { display: block; font-size: 11px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
+    input[type="url"] {
+      width: 100%;
+      padding: 8px 10px;
+      background: #1a1a24;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="url"]:focus { border-color: #7c6af7; }
+    .btn-row { display: flex; gap: 8px; margin-top: 12px; }
+    button {
+      flex: 1;
+      padding: 9px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    #btn-save { background: #7c6af7; color: #fff; }
+    #btn-toggle { background: #1a2a1a; border: 1px solid #3a6a3a; color: #7fff7f; }
+    #btn-toggle.active { background: #2a1a1a; border-color: #6a3a3a; color: #ff7f7f; }
+    .status {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #7c6af7;
+      min-height: 16px;
+    }
+    .divider { border: none; border-top: 1px solid #222; margin: 14px 0; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>HALO</h1>
+    <span class="sub">voice sprite assistant</span>
+  </div>
+
+  <label>Backend URL</label>
+  <input id="url" type="url" placeholder="https://your-app.railway.app" />
+
+  <hr class="divider">
+
+  <div class="btn-row">
+    <button id="btn-save">Save</button>
+    <button id="btn-toggle">Show Squall</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

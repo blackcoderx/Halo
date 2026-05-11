@@ -1,0 +1,377 @@
+/*
+  Halo — content script
+  Injects Squall sprite onto any page. Click sprite to toggle voice session.
+  Adapted from gemini-live-ephemeral-tokens-websocket (geminilive.js + mediaUtils.js).
+*/
+
+// ── AudioStreamer ─────────────────────────────────────────────────────────────
+// Captures mic at 16kHz PCM and calls onChunk(base64) for each audio buffer.
+
+class AudioStreamer {
+  constructor() {
+    this.audioContext = null;
+    this.audioWorklet = null;
+    this.mediaStream = null;
+    this.isStreaming = false;
+  }
+
+  async start(workletUrl, onChunk) {
+    this.mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }
+    });
+
+    this.audioContext = new AudioContext({ sampleRate: 16000 });
+    await this.audioContext.audioWorklet.addModule(workletUrl);
+
+    this.audioWorklet = new AudioWorkletNode(this.audioContext, 'audio-capture-processor');
+    this.audioWorklet.port.onmessage = (e) => {
+      if (!this.isStreaming || e.data.type !== 'audio') return;
+      const pcm = this._toPCM16(e.data.data);
+      onChunk(this._toBase64(pcm));
+    };
+
+    const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+    source.connect(this.audioWorklet);
+    this.isStreaming = true;
+  }
+
+  stop() {
+    this.isStreaming = false;
+    this.audioWorklet?.disconnect();
+    this.audioWorklet?.port.close();
+    this.audioContext?.close();
+    this.mediaStream?.getTracks().forEach(t => t.stop());
+    this.audioWorklet = null;
+    this.audioContext = null;
+    this.mediaStream = null;
+  }
+
+  _toPCM16(float32) {
+    const int16 = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      int16[i] = Math.max(-1, Math.min(1, float32[i])) * 0x7fff;
+    }
+    return int16.buffer;
+  }
+
+  _toBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let bin = '';
+    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+}
+
+// ── AudioPlayer ───────────────────────────────────────────────────────────────
+// Plays 24kHz PCM audio chunks from Gemini.
+
+class AudioPlayer {
+  constructor() {
+    this.audioContext = null;
+    this.workletNode = null;
+    this.gainNode = null;
+    this.initialized = false;
+  }
+
+  async init(workletUrl) {
+    if (this.initialized) return;
+    this.audioContext = new AudioContext({ sampleRate: 24000 });
+    await this.audioContext.audioWorklet.addModule(workletUrl);
+    this.workletNode = new AudioWorkletNode(this.audioContext, 'pcm-processor');
+    this.gainNode = this.audioContext.createGain();
+    this.workletNode.connect(this.gainNode);
+    this.gainNode.connect(this.audioContext.destination);
+    this.initialized = true;
+  }
+
+  async play(base64Audio) {
+    if (!this.initialized) return;
+    if (this.audioContext.state === 'suspended') await this.audioContext.resume();
+    const bin = atob(base64Audio);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const int16 = new Int16Array(bytes.buffer);
+    const float32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+    this.workletNode.port.postMessage(float32);
+  }
+
+  interrupt() {
+    this.workletNode?.port.postMessage('interrupt');
+  }
+
+  destroy() {
+    this.audioContext?.close();
+    this.initialized = false;
+  }
+}
+
+// ── HaloSession ───────────────────────────────────────────────────────────────
+
+const STATES = ['idle', 'listening', 'thinking', 'speaking', 'acting'];
+
+class HaloSession {
+  constructor() {
+    this.ws = null;
+    this.streamer = new AudioStreamer();
+    this.player = new AudioPlayer();
+    this.tools = new HaloTools();  // defined in tools.js, loaded before this file
+    this.state = 'idle';
+    this.container = null;
+    this.sprite = null;
+    this.tooltip = null;
+    this._dragOffset = { x: 0, y: 0 };
+    this._dragging = false;
+    this._hasMoved = false;
+  }
+
+  async init() {
+    // Restore visibility from storage
+    chrome.storage.sync.get('haloVisible', ({ haloVisible }) => {
+      if (haloVisible) this.container.classList.add('halo-visible');
+    });
+
+    this._buildDOM();
+    this._setupDrag();
+
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg.type === 'TOGGLE_HALO') this._toggleVisibility();
+    });
+  }
+
+  _buildDOM() {
+    // Remove any stale instance (e.g. hot reload)
+    document.getElementById('halo-container')?.remove();
+
+    this.container = document.createElement('div');
+    this.container.id = 'halo-container';
+
+    this.sprite = document.createElement('div');
+    this.sprite.id = 'halo-sprite';
+    this.sprite.style.backgroundImage = `url('${chrome.runtime.getURL('assets/spritesheet.webp')}')`;
+    this.sprite.classList.add('state-idle');
+    // Drag offset needs to account for the corrected 128px width
+
+    this.tooltip = document.createElement('div');
+    this.tooltip.id = 'halo-tooltip';
+
+    this.container.appendChild(this.sprite);
+    this.container.appendChild(this.tooltip);
+    document.body.appendChild(this.container);
+
+    // Click = toggle session (only if not dragging)
+    this.sprite.addEventListener('click', () => {
+      if (this._hasMoved) return;
+      this.ws ? this._endSession() : this._startSession();
+    });
+  }
+
+  _setState(state) {
+    STATES.forEach(s => this.sprite.classList.remove(`state-${s}`));
+    this.sprite.classList.add(`state-${state}`);
+    this.state = state;
+  }
+
+  _showTooltip(text, duration = 3000) {
+    this.tooltip.textContent = text;
+    this.tooltip.classList.add('visible');
+    clearTimeout(this._tooltipTimer);
+    if (duration > 0) {
+      this._tooltipTimer = setTimeout(() => this.tooltip.classList.remove('visible'), duration);
+    }
+  }
+
+  _toggleVisibility() {
+    this.container.classList.toggle('halo-visible');
+  }
+
+  // ── Session ──────────────────────────────────────────────────────────────
+
+  async _startSession() {
+    this._setState('thinking');
+    this._showTooltip('Connecting…', 0);
+
+    // 1. Fetch ephemeral token via service worker
+    let token;
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'GET_TOKEN' });
+      if (resp.error) throw new Error(resp.error);
+      token = resp.token;
+    } catch (e) {
+      this._showTooltip(`Error: ${e.message}`);
+      this._setState('idle');
+      return;
+    }
+
+    // 2. Init audio player (one-time)
+    const playerUrl = chrome.runtime.getURL('audio-processors/playback.worklet.js');
+    try {
+      await this.player.init(playerUrl);
+    } catch (e) {
+      console.error('[Halo] AudioPlayer init failed:', e);
+    }
+
+    // 3. Open WebSocket to Gemini
+    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${token}`;
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.onopen = () => this._sendSetup();
+    this.ws.onmessage = (e) => this._onMessage(e);
+    this.ws.onerror = (e) => {
+      console.error('[Halo] WebSocket error', e);
+      this._showTooltip('Connection error');
+      this._endSession();
+    };
+    this.ws.onclose = () => {
+      this._setState('idle');
+      this.ws = null;
+    };
+  }
+
+  async _sendSetup() {
+    const setup = {
+      setup: {
+        model: 'models/gemini-3.1-flash-live-preview',
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+          }
+        },
+        systemInstruction: {
+          parts: [{
+            text: `You are Halo, a helpful voice assistant embedded as a floating sprite named Squall on any web page. ` +
+                  `The user is currently on: ${document.title} (${location.href}). ` +
+                  `Help them by filling forms, summarizing page content, clicking elements, and guiding through tasks. ` +
+                  `Be concise — your responses are spoken aloud. Keep answers under 3 sentences unless asked for more.`
+          }]
+        },
+        tools: [{ functionDeclarations: this.tools.declarations() }],
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            disabled: false,
+            silenceDurationMs: 1500,
+            prefixPaddingMs: 300,
+          },
+          turnCoverage: 'TURN_INCLUDES_ONLY_ACTIVITY',
+        }
+      }
+    };
+
+    this.ws.send(JSON.stringify(setup));
+  }
+
+  async _onMessage(event) {
+    let data;
+    try {
+      const text = event.data instanceof Blob
+        ? await event.data.text()
+        : (event.data instanceof ArrayBuffer ? new TextDecoder().decode(event.data) : event.data);
+      data = JSON.parse(text);
+    } catch {
+      return;
+    }
+
+    // Setup acknowledged — start mic
+    if (data.setupComplete) {
+      this._showTooltip('Listening…', 2000);
+      this._setState('listening');
+      const captureUrl = chrome.runtime.getURL('audio-processors/capture.worklet.js');
+      try {
+        await this.streamer.start(captureUrl, (b64) => this._sendAudio(b64));
+      } catch (e) {
+        this._showTooltip(`Mic error: ${e.message}`);
+        this._endSession();
+      }
+      return;
+    }
+
+    // Tool call
+    if (data.toolCall) {
+      this._setState('acting');
+      const responses = [];
+      for (const fc of data.toolCall.functionCalls) {
+        const result = await this.tools.execute(fc.name, fc.args);
+        responses.push({ id: fc.id, name: fc.name, response: { result: String(result) } });
+      }
+      this.ws?.send(JSON.stringify({ toolResponse: { functionResponses: responses } }));
+      this._setState('listening');
+      return;
+    }
+
+    const content = data.serverContent;
+    if (!content) return;
+
+    // Audio from model
+    if (content.modelTurn?.parts) {
+      this._setState('speaking');
+      for (const part of content.modelTurn.parts) {
+        if (part.inlineData) {
+          await this.player.play(part.inlineData.data);
+        }
+      }
+    }
+
+    if (content.interrupted) {
+      this.player.interrupt();
+      this._setState('listening');
+    }
+
+    if (content.turnComplete) {
+      this._setState('listening');
+    }
+  }
+
+  _sendAudio(base64) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({
+      realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data: base64 } }
+    }));
+  }
+
+  _endSession() {
+    this.streamer.stop();
+    this.player.interrupt();
+    this.ws?.close();
+    this.ws = null;
+    this._setState('idle');
+    this._showTooltip('Session ended', 2000);
+  }
+
+  // ── Drag ─────────────────────────────────────────────────────────────────
+
+  _setupDrag() {
+    this.container.addEventListener('mousedown', (e) => {
+      this._dragging = true;
+      this._hasMoved = false;
+      const rect = this.container.getBoundingClientRect();
+      this._dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!this._dragging) return;
+      this._hasMoved = true;
+      this.container.style.left   = `${e.clientX - this._dragOffset.x}px`;
+      this.container.style.top    = `${e.clientY - this._dragOffset.y}px`;
+      this.container.style.right  = 'auto';
+      this.container.style.bottom = 'auto';
+    });
+
+    document.addEventListener('mouseup', () => {
+      this._dragging = false;
+      // Reset hasMoved after a tick so the click handler sees it
+      setTimeout(() => { this._hasMoved = false; }, 0);
+    });
+  }
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+
+const halo = new HaloSession();
+halo.init();

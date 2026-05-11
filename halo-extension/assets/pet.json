@@ -1,0 +1,7 @@
+{
+  "id": "squall",
+  "displayName": "Squall",
+  "description": "A tiny chibi gunblade hero with a black fur-collar jacket.",
+  "spritesheetPath": "spritesheet.webp",
+  "kind": "person"
+}

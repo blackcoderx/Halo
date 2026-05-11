@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Halo",
+  "version": "0.1.0",
+  "description": "A voice-powered sprite assistant for any web page",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/tools.js", "content/halo.js"],
+      "css": ["content/halo.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Halo"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "audio-processors/capture.worklet.js",
+        "audio-processors/playback.worklet.js",
+        "assets/spritesheet.webp"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
