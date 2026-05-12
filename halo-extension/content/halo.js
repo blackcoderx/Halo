@@ -22,15 +22,18 @@ class AudioStreamer {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-      }
+      },
     });
 
     this.audioContext = new AudioContext({ sampleRate: 16000 });
     await this.audioContext.audioWorklet.addModule(workletUrl);
 
-    this.audioWorklet = new AudioWorkletNode(this.audioContext, 'audio-capture-processor');
+    this.audioWorklet = new AudioWorkletNode(
+      this.audioContext,
+      "audio-capture-processor",
+    );
     this.audioWorklet.port.onmessage = (e) => {
-      if (!this.isStreaming || e.data.type !== 'audio') return;
+      if (!this.isStreaming || e.data.type !== "audio") return;
       const pcm = this._toPCM16(e.data.data);
       onChunk(this._toBase64(pcm));
     };
@@ -45,7 +48,7 @@ class AudioStreamer {
     this.audioWorklet?.disconnect();
     this.audioWorklet?.port.close();
     this.audioContext?.close();
-    this.mediaStream?.getTracks().forEach(t => t.stop());
+    this.mediaStream?.getTracks().forEach((t) => t.stop());
     this.audioWorklet = null;
     this.audioContext = null;
     this.mediaStream = null;
@@ -61,8 +64,9 @@ class AudioStreamer {
 
   _toBase64(buffer) {
     const bytes = new Uint8Array(buffer);
-    let bin = '';
-    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+    let bin = "";
+    for (let i = 0; i < bytes.byteLength; i++)
+      bin += String.fromCharCode(bytes[i]);
     return btoa(bin);
   }
 }
@@ -82,7 +86,7 @@ class AudioPlayer {
     if (this.initialized) return;
     this.audioContext = new AudioContext({ sampleRate: 24000 });
     await this.audioContext.audioWorklet.addModule(workletUrl);
-    this.workletNode = new AudioWorkletNode(this.audioContext, 'pcm-processor');
+    this.workletNode = new AudioWorkletNode(this.audioContext, "pcm-processor");
     this.gainNode = this.audioContext.createGain();
     this.workletNode.connect(this.gainNode);
     this.gainNode.connect(this.audioContext.destination);
@@ -91,7 +95,8 @@ class AudioPlayer {
 
   async play(base64Audio) {
     if (!this.initialized) return;
-    if (this.audioContext.state === 'suspended') await this.audioContext.resume();
+    if (this.audioContext.state === "suspended")
+      await this.audioContext.resume();
     const bin = atob(base64Audio);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -102,7 +107,7 @@ class AudioPlayer {
   }
 
   interrupt() {
-    this.workletNode?.port.postMessage('interrupt');
+    this.workletNode?.port.postMessage("interrupt");
   }
 
   destroy() {
@@ -114,11 +119,11 @@ class AudioPlayer {
 // ── Sprite state config (from pet-extension/shared/state-machine.js) ──────────
 
 const STATE_CONFIG = {
-  idle:      { row: 8, frames: 6, durationMs: 150 },
+  idle: { row: 8, frames: 6, durationMs: 150 },
   listening: { row: 3, frames: 4, durationMs: 120 },
-  thinking:  { row: 0, frames: 6, durationMs: 140 },
-  speaking:  { row: 7, frames: 6, durationMs: 120 },
-  acting:    { row: 1, frames: 8, durationMs: 100 },
+  thinking: { row: 0, frames: 6, durationMs: 140 },
+  speaking: { row: 7, frames: 6, durationMs: 120 },
+  acting: { row: 1, frames: 8, durationMs: 100 },
 };
 
 const SPRITE_CELL_W = 192;
@@ -133,8 +138,8 @@ class HaloSession {
     this.ws = null;
     this.streamer = new AudioStreamer();
     this.player = new AudioPlayer();
-    this.tools = new HaloTools();  // defined in tools.js, loaded before this file
-    this.state = 'idle';
+    this.tools = new HaloTools(); // defined in tools.js, loaded before this file
+    this.state = "idle";
     this.container = null;
     this.canvas = null;
     this.ctx = null;
@@ -153,41 +158,42 @@ class HaloSession {
 
     // Load spritesheet then start idle animation
     const img = new Image();
-    img.src = chrome.runtime.getURL('assets/spritesheet.webp');
+    img.src = chrome.runtime.getURL("assets/spritesheet.webp");
     await img.decode();
     this.spritesheet = img;
-    this._setState('idle');
+    this._setState("idle");
 
-    // Restore visibility from storage
-    chrome.storage.sync.get('haloVisible', ({ haloVisible }) => {
-      if (haloVisible) this.container.classList.add('halo-visible');
+    // Restore visibility and auto-reconnect if session was active before refresh
+    chrome.storage.sync.get("haloVisible", ({ haloVisible }) => {
+      if (haloVisible) this.container.classList.add("halo-visible");
+      if (sessionStorage.getItem("haloActive")) this._startSession();
     });
 
     chrome.runtime.onMessage.addListener((msg) => {
-      if (msg.type === 'TOGGLE_HALO') this._toggleVisibility();
+      if (msg.type === "TOGGLE_HALO") this._toggleVisibility();
     });
   }
 
   _buildDOM() {
-    document.getElementById('halo-container')?.remove();
+    document.getElementById("halo-container")?.remove();
 
-    this.container = document.createElement('div');
-    this.container.id = 'halo-container';
+    this.container = document.createElement("div");
+    this.container.id = "halo-container";
 
-    this.canvas = document.createElement('canvas');
+    this.canvas = document.createElement("canvas");
     this.canvas.width = RENDER_W;
     this.canvas.height = RENDER_H;
-    this.ctx = this.canvas.getContext('2d');
+    this.ctx = this.canvas.getContext("2d");
 
-    this.tooltip = document.createElement('div');
-    this.tooltip.id = 'halo-tooltip';
+    this.tooltip = document.createElement("div");
+    this.tooltip.id = "halo-tooltip";
 
     this.container.appendChild(this.canvas);
     this.container.appendChild(this.tooltip);
     document.body.appendChild(this.container);
 
     // Click = toggle session (only if not dragging)
-    this.canvas.addEventListener('click', () => {
+    this.canvas.addEventListener("click", () => {
       if (this._hasMoved) return;
       this.ws ? this._endSession() : this._startSession();
     });
@@ -212,49 +218,61 @@ class HaloSession {
     this.ctx.clearRect(0, 0, RENDER_W, RENDER_H);
     this.ctx.drawImage(
       this.spritesheet,
-      this.currentFrame * SPRITE_CELL_W, cfg.row * SPRITE_CELL_H,
-      SPRITE_CELL_W, SPRITE_CELL_H,
-      0, 0, RENDER_W, RENDER_H
+      this.currentFrame * SPRITE_CELL_W,
+      cfg.row * SPRITE_CELL_H,
+      SPRITE_CELL_W,
+      SPRITE_CELL_H,
+      0,
+      0,
+      RENDER_W,
+      RENDER_H,
     );
   }
 
   _showTooltip(text, duration = 3000) {
     this.tooltip.textContent = text;
-    this.tooltip.classList.add('visible');
+    this.tooltip.classList.add("visible");
     clearTimeout(this._tooltipTimer);
     if (duration > 0) {
-      this._tooltipTimer = setTimeout(() => this.tooltip.classList.remove('visible'), duration);
+      this._tooltipTimer = setTimeout(
+        () => this.tooltip.classList.remove("visible"),
+        duration,
+      );
     }
   }
 
   _toggleVisibility() {
-    this.container.classList.toggle('halo-visible');
+    this.container.classList.toggle("halo-visible");
   }
 
   // ── Session ──────────────────────────────────────────────────────────────
 
   async _startSession() {
-    this._setState('thinking');
-    this._showTooltip('Connecting…', 0);
+    this._setState("thinking");
+    this._showTooltip("Connecting…", 0);
 
     // 1. Fetch ephemeral token via service worker
     let token;
     try {
-      const resp = await chrome.runtime.sendMessage({ type: 'GET_TOKEN' });
+      const resp = await chrome.runtime.sendMessage({ type: "GET_TOKEN" });
       if (resp.error) throw new Error(resp.error);
       token = resp.token;
     } catch (e) {
       this._showTooltip(`Error: ${e.message}`);
-      this._setState('idle');
+      this._setState("idle");
       return;
     }
 
+    sessionStorage.setItem("haloActive", "1");
+
     // 2. Init audio player (one-time)
-    const playerUrl = chrome.runtime.getURL('audio-processors/playback.worklet.js');
+    const playerUrl = chrome.runtime.getURL(
+      "audio-processors/playback.worklet.js",
+    );
     try {
       await this.player.init(playerUrl);
     } catch (e) {
-      console.error('[Halo] AudioPlayer init failed:', e);
+      console.error("[Halo] AudioPlayer init failed:", e);
     }
 
     // 3. Open WebSocket to Gemini
@@ -264,12 +282,12 @@ class HaloSession {
     this.ws.onopen = () => this._sendSetup();
     this.ws.onmessage = (e) => this._onMessage(e);
     this.ws.onerror = (e) => {
-      console.error('[Halo] WebSocket error', e);
-      this._showTooltip('Connection error');
+      console.error("[Halo] WebSocket error", e);
+      this._showTooltip("Connection error");
       this._endSession();
     };
     this.ws.onclose = () => {
-      this._setState('idle');
+      this._setState("idle");
       this.ws = null;
     };
   }
@@ -277,20 +295,23 @@ class HaloSession {
   async _sendSetup() {
     const setup = {
       setup: {
-        model: 'models/gemini-3.1-flash-live-preview',
+        model: "models/gemini-3.1-flash-live-preview",
         generationConfig: {
-          responseModalities: ['AUDIO'],
+          responseModalities: ["AUDIO"],
           speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
-          }
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } },
+          },
         },
         systemInstruction: {
-          parts: [{
-            text: `You are Halo, a helpful voice assistant embedded as a floating sprite named Squall on any web page. ` +
-                  `The user is currently on: ${document.title} (${location.href}). ` +
-                  `Help them by filling forms, summarizing page content, clicking elements, and guiding through tasks. ` +
-                  `Be concise — your responses are spoken aloud. Keep answers under 3 sentences unless asked for more.`
-          }]
+          parts: [
+            {
+              text:
+                `You are Luffy, a helpful voice assistant embedded as a floating sprite named Squall on any web page. ` +
+                `The user is currently on: ${document.title} (${location.href}). ` +
+                `Help them by filling forms, summarizing page content, clicking elements, and guiding through tasks. ` +
+                `Be concise — your responses are spoken aloud. Keep answers under 3 sentences unless asked for more.`,
+            },
+          ],
         },
         tools: [{ functionDeclarations: this.tools.declarations() }],
         realtimeInputConfig: {
@@ -299,9 +320,9 @@ class HaloSession {
             silenceDurationMs: 1500,
             prefixPaddingMs: 300,
           },
-          turnCoverage: 'TURN_INCLUDES_ONLY_ACTIVITY',
-        }
-      }
+          turnCoverage: "TURN_INCLUDES_ONLY_ACTIVITY",
+        },
+      },
     };
 
     this.ws.send(JSON.stringify(setup));
@@ -310,9 +331,12 @@ class HaloSession {
   async _onMessage(event) {
     let data;
     try {
-      const text = event.data instanceof Blob
-        ? await event.data.text()
-        : (event.data instanceof ArrayBuffer ? new TextDecoder().decode(event.data) : event.data);
+      const text =
+        event.data instanceof Blob
+          ? await event.data.text()
+          : event.data instanceof ArrayBuffer
+            ? new TextDecoder().decode(event.data)
+            : event.data;
       data = JSON.parse(text);
     } catch {
       return;
@@ -320,9 +344,11 @@ class HaloSession {
 
     // Setup acknowledged — start mic
     if (data.setupComplete) {
-      this._showTooltip('Listening…', 2000);
-      this._setState('listening');
-      const captureUrl = chrome.runtime.getURL('audio-processors/capture.worklet.js');
+      this._showTooltip("Listening…", 2000);
+      this._setState("listening");
+      const captureUrl = chrome.runtime.getURL(
+        "audio-processors/capture.worklet.js",
+      );
       try {
         await this.streamer.start(captureUrl, (b64) => this._sendAudio(b64));
       } catch (e) {
@@ -334,14 +360,20 @@ class HaloSession {
 
     // Tool call
     if (data.toolCall) {
-      this._setState('acting');
+      this._setState("acting");
       const responses = [];
       for (const fc of data.toolCall.functionCalls) {
         const result = await this.tools.execute(fc.name, fc.args);
-        responses.push({ id: fc.id, name: fc.name, response: { result: String(result) } });
+        responses.push({
+          id: fc.id,
+          name: fc.name,
+          response: { result: String(result) },
+        });
       }
-      this.ws?.send(JSON.stringify({ toolResponse: { functionResponses: responses } }));
-      this._setState('listening');
+      this.ws?.send(
+        JSON.stringify({ toolResponse: { functionResponses: responses } }),
+      );
+      this._setState("listening");
       return;
     }
 
@@ -350,7 +382,7 @@ class HaloSession {
 
     // Audio from model
     if (content.modelTurn?.parts) {
-      this._setState('speaking');
+      this._setState("speaking");
       for (const part of content.modelTurn.parts) {
         if (part.inlineData) {
           await this.player.play(part.inlineData.data);
@@ -360,19 +392,23 @@ class HaloSession {
 
     if (content.interrupted) {
       this.player.interrupt();
-      this._setState('listening');
+      this._setState("listening");
     }
 
     if (content.turnComplete) {
-      this._setState('listening');
+      this._setState("listening");
     }
   }
 
   _sendAudio(base64) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({
-      realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data: base64 } }
-    }));
+    this.ws.send(
+      JSON.stringify({
+        realtimeInput: {
+          audio: { mimeType: "audio/pcm;rate=16000", data: base64 },
+        },
+      }),
+    );
   }
 
   _endSession() {
@@ -381,14 +417,15 @@ class HaloSession {
     this.ws?.close();
     this.ws = null;
     clearInterval(this.frameTimer);
-    this._setState('idle');
-    this._showTooltip('Session ended', 2000);
+    sessionStorage.removeItem("haloActive");
+    this._setState("idle");
+    this._showTooltip("Session ended", 2000);
   }
 
   // ── Drag ─────────────────────────────────────────────────────────────────
 
   _setupDrag() {
-    this.container.addEventListener('mousedown', (e) => {
+    this.container.addEventListener("mousedown", (e) => {
       this._dragging = true;
       this._hasMoved = false;
       const rect = this.container.getBoundingClientRect();
@@ -396,19 +433,21 @@ class HaloSession {
       e.preventDefault();
     });
 
-    document.addEventListener('mousemove', (e) => {
+    document.addEventListener("mousemove", (e) => {
       if (!this._dragging) return;
       this._hasMoved = true;
-      this.container.style.left   = `${e.clientX - this._dragOffset.x}px`;
-      this.container.style.top    = `${e.clientY - this._dragOffset.y}px`;
-      this.container.style.right  = 'auto';
-      this.container.style.bottom = 'auto';
+      this.container.style.left = `${e.clientX - this._dragOffset.x}px`;
+      this.container.style.top = `${e.clientY - this._dragOffset.y}px`;
+      this.container.style.right = "auto";
+      this.container.style.bottom = "auto";
     });
 
-    document.addEventListener('mouseup', () => {
+    document.addEventListener("mouseup", () => {
       this._dragging = false;
       // Reset hasMoved after a tick so the click handler sees it
-      setTimeout(() => { this._hasMoved = false; }, 0);
+      setTimeout(() => {
+        this._hasMoved = false;
+      }, 0);
     });
   }
 }
