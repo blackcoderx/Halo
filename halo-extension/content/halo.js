@@ -154,6 +154,7 @@ class HaloSession {
 
   async init() {
     this._buildDOM();
+    this._restorePosition();
     this._setupDrag();
 
     // Load spritesheet then start idle animation
@@ -171,6 +172,16 @@ class HaloSession {
 
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg.type === "TOGGLE_HALO") this._toggleVisibility();
+    });
+
+    chrome.storage.onChanged.addListener((changes) => {
+      if (!changes.haloPosition) return;
+      const pos = changes.haloPosition.newValue;
+      if (!pos) return;
+      this.container.style.left = `${pos.left}px`;
+      this.container.style.top = `${pos.top}px`;
+      this.container.style.right = "auto";
+      this.container.style.bottom = "auto";
     });
   }
 
@@ -196,6 +207,23 @@ class HaloSession {
     this.canvas.addEventListener("click", () => {
       if (this._hasMoved) return;
       this.ws ? this._endSession() : this._startSession();
+    });
+  }
+
+  _restorePosition() {
+    chrome.storage.sync.get("haloPosition", ({ haloPosition }) => {
+      if (!haloPosition) return;
+      const { left, top, vw, vh } = haloPosition;
+      if (left === undefined || top === undefined) return;
+      if (vw && vh && (Math.abs(vw - window.innerWidth) > 100 || Math.abs(vh - window.innerHeight) > 100)) {
+        this.container.style.left = `${(left / vw) * window.innerWidth}px`;
+        this.container.style.top = `${(top / vh) * window.innerHeight}px`;
+      } else {
+        this.container.style.left = `${left}px`;
+        this.container.style.top = `${top}px`;
+      }
+      this.container.style.right = "auto";
+      this.container.style.bottom = "auto";
     });
   }
 
@@ -443,7 +471,17 @@ class HaloSession {
     });
 
     document.addEventListener("mouseup", () => {
+      if (!this._dragging) return;
       this._dragging = false;
+      const rect = this.container.getBoundingClientRect();
+      chrome.storage.sync.set({
+        haloPosition: {
+          left: rect.left,
+          top: rect.top,
+          vw: window.innerWidth,
+          vh: window.innerHeight,
+        },
+      });
       // Reset hasMoved after a tick so the click handler sees it
       setTimeout(() => {
         this._hasMoved = false;
