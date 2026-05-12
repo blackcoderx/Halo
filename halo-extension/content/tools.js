@@ -132,6 +132,28 @@ class HaloTools {
         },
       },
       {
+        name: 'save_memory',
+        description: 'Save an important fact about the user that you should remember across sessions (e.g. their name, preferences, ongoing tasks). Call this whenever you learn something significant about the user.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            note: {
+              type: 'STRING',
+              description: 'The fact or memory to persist',
+            },
+          },
+          required: ['note'],
+        },
+      },
+      {
+        name: 'clear_memory',
+        description: 'Clear all stored memories and user facts. Ask the user to confirm before calling.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {},
+        },
+      },
+      {
         name: 'javascript',
         description: 'Execute JavaScript code on the page',
         parameters: {
@@ -161,6 +183,10 @@ class HaloTools {
         return this._getPageContent(args.max_chars || 5000);
       case 'get_page_info':
         return this._getPageInfo();
+      case 'save_memory':
+        return this._saveMemory(args.note);
+      case 'clear_memory':
+        return this._clearMemory();
       default:
         return `Unknown tool: ${name}`;
     }
@@ -253,6 +279,20 @@ class HaloTools {
       description: document.querySelector('meta[name="description"]')?.content || '',
       headings: [...document.querySelectorAll('h1, h2')].slice(0, 10).map((h) => h.textContent.trim()),
     });
+  }
+
+  async _saveMemory(note) {
+    const memory = window.__haloMemory;
+    if (!memory) return 'Memory system not available';
+    await memory.saveMemory(note);
+    return `Saved memory: ${note}`;
+  }
+
+  async _clearMemory() {
+    const memory = window.__haloMemory;
+    if (!memory) return 'Memory system not available';
+    await memory.clearMemory();
+    return 'All memories cleared';
   }
 
   _isVisible(el) {

@@ -150,6 +150,8 @@ class HaloSession {
     this._dragOffset = { x: 0, y: 0 };
     this._dragging = false;
     this._hasMoved = false;
+    this.memory = new MemoryManager();
+    window.__haloMemory = this.memory;
   }
 
   async init() {
@@ -162,6 +164,7 @@ class HaloSession {
     img.src = chrome.runtime.getURL("assets/spritesheet.webp");
     await img.decode();
     this.spritesheet = img;
+    await this.memory.load();
     this._setState("idle");
 
     // Restore visibility and auto-reconnect if session was active before refresh
@@ -344,7 +347,19 @@ class HaloSession {
                 `- Use computer action=type with text="..." to fill text fields. Always click the field first to focus it.\n` +
                 `- Use computer action=scroll with direction="down"/"up" and optional amount (pixels) to scroll.\n` +
                 `- Use navigate with url="back"/"forward" for history, or a full URL to go to a page.\n` +
-                `- Use get_page_content to read page text when the user asks about page content.`,
+                `- Use get_page_content to read page text when the user asks about page content.\n` +
+                `MEMORY USAGE:\n` +
+                `- Call save_memory whenever you learn ANY of the following:\n` +
+                `  • The user's name, job, or personal details\n` +
+                `  • Their preferences (response style, verbosity, topics they like/dislike)\n` +
+                `  • An ongoing task or goal they want to accomplish across sessions\n` +
+                `  • Page-specific context they explicitly say is important\n` +
+                `  • Anything the user says "remember this" about\n` +
+                `- Do NOT save one-off requests like "search for X" or "scroll down"\n` +
+                `- Example: user says "I'm Sarah, a data scientist" → save_memory("User's name is Sarah, works as a data scientist")\n` +
+                `- Example: user says "keep answers short" → save_memory("User prefers very concise one-sentence answers")\n` +
+                `- Call clear_memory only after user explicitly confirms "yes" to your confirmation question.\n\n` +
+                this.memory.getContextString(),
             },
           ],
         },
@@ -425,6 +440,14 @@ class HaloSession {
       }
     }
 
+    if (content.input_transcription?.text) {
+      this.memory.addToTranscript('user', content.input_transcription.text);
+    }
+
+    if (content.output_transcription?.text) {
+      this.memory.addToTranscript('assistant', content.output_transcription.text);
+    }
+
     if (content.interrupted) {
       this.player.interrupt();
       this._setState("listening");
@@ -446,7 +469,7 @@ class HaloSession {
     );
   }
 
-  _endSession() {
+  async _endSession() {
     this.streamer.stop();
     this.player.interrupt();
     this.ws?.close();
@@ -456,6 +479,7 @@ class HaloSession {
     sessionStorage.removeItem("haloActive");
     this._setState("idle");
     this._showTooltip("Session ended", 2000);
+    await this.memory.endSession(location.href, document.title);
   }
 
   // ── Drag ─────────────────────────────────────────────────────────────────
