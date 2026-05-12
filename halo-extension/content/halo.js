@@ -337,7 +337,14 @@ class HaloSession {
                 `You are Luffy, a helpful voice assistant embedded as a floating sprite named Squall on any web page. ` +
                 `The user is currently on: ${document.title} (${location.href}). ` +
                 `Help them by filling forms, summarizing page content, clicking elements, and guiding through tasks. ` +
-                `Be concise — your responses are spoken aloud. Keep answers under 3 sentences unless asked for more.`,
+                `Be concise — your responses are spoken aloud. Keep answers under 3 sentences unless asked for more.\n\n` +
+                `TOOL USAGE GUIDE:\n` +
+                `- Use find_elements to list interactive elements with coordinates before clicking or typing.\n` +
+                `- Use computer action=click with coordinate=[x,y] to click elements.\n` +
+                `- Use computer action=type with text="..." to fill text fields. Always click the field first to focus it.\n` +
+                `- Use computer action=scroll with direction="down"/"up" and optional amount (pixels) to scroll.\n` +
+                `- Use navigate with url="back"/"forward" for history, or a full URL to go to a page.\n` +
+                `- Use get_page_content to read page text when the user asks about page content.`,
             },
           ],
         },
@@ -444,6 +451,7 @@ class HaloSession {
     this.player.interrupt();
     this.ws?.close();
     this.ws = null;
+    this.tools.sendDetach();
     clearInterval(this.frameTimer);
     sessionStorage.removeItem("haloActive");
     this._setState("idle");

@@ -3,7 +3,7 @@
   "name": "Halo",
   "version": "0.1.0",
   "description": "A voice-powered sprite assistant for any web page",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "debugger"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background/service-worker.js"

@@ -1,148 +1,249 @@
+class ElementRefMap {
+  constructor() {
+    this._counter = 0;
+    this._map = new Map();
+  }
+
+  register(el) {
+    this._counter++;
+    const ref = `ref_${this._counter}`;
+    this._map.set(ref, el);
+    return ref;
+  }
+
+  get(ref) {
+    return this._map.get(ref) || null;
+  }
+
+  clear() {
+    this._map.clear();
+    this._counter = 0;
+  }
+}
+
 class HaloTools {
+  constructor() {
+    this._refs = new ElementRefMap();
+  }
+
   declarations() {
     return [
       {
-        name: 'fill_form_field',
-        description: 'Fill a form field on the current page by its visible label, placeholder, or name',
+        name: 'computer',
+        description: 'Perform mouse, keyboard, and browser actions on the page. Use find_elements first to get coordinates/refs.',
         parameters: {
           type: 'OBJECT',
           properties: {
-            field_label: {
+            action: {
               type: 'STRING',
-              description: 'The visible label text, placeholder, aria-label, or name attribute of the field'
+              enum: ['click', 'type', 'key', 'scroll', 'hover', 'drag', 'wait', 'screenshot'],
+              description: 'Action to perform',
             },
-            value: {
-              type: 'STRING',
-              description: 'The value to fill in'
-            }
-          },
-          required: ['field_label', 'value']
-        }
-      },
-      {
-        name: 'summarize_page',
-        description: 'Read the text content of the current web page so you can summarize it aloud for the user',
-        parameters: {
-          type: 'OBJECT',
-          properties: {}
-        }
-      },
-      {
-        name: 'click_element',
-        description: 'Click a button, link, or interactive element by its visible text',
-        parameters: {
-          type: 'OBJECT',
-          properties: {
+            coordinate: {
+              type: 'ARRAY',
+              items: { type: 'NUMBER' },
+              description: '[x, y] pixel coordinates for click/hover/drag',
+            },
             text: {
               type: 'STRING',
-              description: 'The visible text of the button or link to click'
-            }
+              description: 'Text to type (type action) or key name (key action, e.g. "Enter", "Tab")',
+            },
+            scroll_direction: {
+              type: 'STRING',
+              enum: ['up', 'down', 'left', 'right'],
+              description: 'Direction to scroll',
+            },
+            scroll_amount: {
+              type: 'NUMBER',
+              description: 'Scroll distance in pixels (default: 300)',
+            },
+            duration: {
+              type: 'NUMBER',
+              description: 'Seconds to wait for wait action (0-30)',
+            },
+            click_count: {
+              type: 'NUMBER',
+              description: 'Click count for double/triple click (default: 1)',
+            },
+            button: {
+              type: 'STRING',
+              enum: ['left', 'right'],
+              description: 'Mouse button for click (default: left)',
+            },
+            keys: {
+              type: 'STRING',
+              description: 'Alternative to text for key action',
+            },
+            start_coordinate: {
+              type: 'ARRAY',
+              items: { type: 'NUMBER' },
+              description: '[x, y] start position for drag',
+            },
+            end_coordinate: {
+              type: 'ARRAY',
+              items: { type: 'NUMBER' },
+              description: '[x, y] end position for drag',
+            },
           },
-          required: ['text']
-        }
+          required: ['action'],
+        },
       },
       {
-        name: 'scroll_to_section',
-        description: 'Scroll the page to a section heading',
+        name: 'navigate',
+        description: 'Navigate to a URL or go back/forward in browser history',
         parameters: {
           type: 'OBJECT',
           properties: {
-            heading: {
+            url: {
               type: 'STRING',
-              description: 'The text of the heading to scroll to'
-            }
+              description: 'URL to navigate to, or "back"/"forward" for history navigation',
+            },
           },
-          required: ['heading']
-        }
+          required: ['url'],
+        },
+      },
+      {
+        name: 'find_elements',
+        description: 'Get all interactive elements on the page with reference IDs and coordinates for use with computer tool',
+        parameters: {
+          type: 'OBJECT',
+          properties: {},
+        },
+      },
+      {
+        name: 'get_page_content',
+        description: 'Read the main text content of the current page',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            max_chars: {
+              type: 'NUMBER',
+              description: 'Maximum characters to return (default: 5000)',
+            },
+          },
+        },
       },
       {
         name: 'get_page_info',
-        description: 'Get the current page URL, title, and meta description as context',
+        description: 'Get the current page URL, title, and meta description',
         parameters: {
           type: 'OBJECT',
-          properties: {}
-        }
-      }
+          properties: {},
+        },
+      },
+      {
+        name: 'javascript',
+        description: 'Execute JavaScript code on the page',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            code: {
+              type: 'STRING',
+              description: 'JavaScript code to execute',
+            },
+          },
+          required: ['code'],
+        },
+      },
     ];
   }
 
   async execute(name, args = {}) {
     switch (name) {
-      case 'fill_form_field':   return this._fillFormField(args.field_label, args.value);
-      case 'summarize_page':    return this._summarizePage();
-      case 'click_element':     return this._clickElement(args.text);
-      case 'scroll_to_section': return this._scrollToSection(args.heading);
-      case 'get_page_info':     return this._getPageInfo();
-      default:                  return `Unknown tool: ${name}`;
+      case 'computer':
+      case 'navigate':
+      case 'javascript':
+        return this._execCDP(name, args);
+
+      case 'find_elements':
+        return this._findElements();
+      case 'get_page_content':
+        return this._getPageContent(args.max_chars || 5000);
+      case 'get_page_info':
+        return this._getPageInfo();
+      default:
+        return `Unknown tool: ${name}`;
     }
   }
 
-  _fillFormField(label, value) {
-    const inputs = [...document.querySelectorAll('input, textarea, select')];
-    const q = (label || '').toLowerCase();
-
-    const match = inputs.find(el => {
-      const forLabel = el.id ? document.querySelector(`label[for="${el.id}"]`) : null;
-      return (
-        forLabel?.textContent?.toLowerCase().includes(q) ||
-        (el.placeholder || '').toLowerCase().includes(q) ||
-        (el.name || '').toLowerCase().includes(q) ||
-        (el.getAttribute('aria-label') || '').toLowerCase().includes(q) ||
-        (el.getAttribute('aria-labelledby') && document.getElementById(el.getAttribute('aria-labelledby'))?.textContent?.toLowerCase().includes(q))
-      );
+  _execCDP(tool, params) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'EXECUTE_CDP', tool, params }, (res) => {
+        if (chrome.runtime.lastError) resolve(`Error: ${chrome.runtime.lastError.message}`);
+        else if (res?.error) resolve(`Error: ${res.error}`);
+        else resolve(res?.result ?? 'Done');
+      });
     });
-
-    if (!match) return `Could not find a field matching: "${label}"`;
-
-    match.focus();
-    // Handle React/Vue controlled inputs by triggering native setter
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      match.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype,
-      'value'
-    )?.set;
-    if (nativeSetter) nativeSetter.call(match, value);
-    else match.value = value;
-
-    match.dispatchEvent(new Event('input',  { bubbles: true }));
-    match.dispatchEvent(new Event('change', { bubbles: true }));
-    return `Filled "${label}" with "${value}"`;
   }
 
-  _summarizePage() {
-    // Skip script/style/nav noise, grab meaningful text
+  sendDetach() {
+    chrome.runtime.sendMessage({ type: 'CDP_DETACH' }).catch(() => {});
+  }
+
+  // ── Content-script tools (no CDP needed) ───────────────────────────────
+
+  _findElements() {
+    this._refs.clear();
+    const lines = [];
+    const selector = [
+      'a', 'button', 'input', 'select', 'textarea',
+      '[role="button"]', '[role="link"]', '[role="textbox"]',
+      '[role="combobox"]', '[role="checkbox"]', '[role="radio"]',
+      '[role="searchbox"]', '[role="spinbutton"]', '[role="slider"]',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(', ');
+
+    document.querySelectorAll(selector).forEach((el) => {
+      if (!this._isVisible(el)) return;
+      const ref = this._refs.register(el);
+      const rect = el.getBoundingClientRect();
+      const cx = Math.round(rect.left + rect.width / 2);
+      const cy = Math.round(rect.top + rect.height / 2);
+
+      const tag = el.tagName.toLowerCase();
+      const type = (el.getAttribute('type') || '').toLowerCase();
+      let role = el.getAttribute('role') || '';
+      if (!role) {
+        if (tag === 'a') role = 'link';
+        else if (tag === 'button' || type === 'submit' || type === 'button') role = 'button';
+        else if (tag === 'input' && type === 'checkbox') role = 'checkbox';
+        else if (tag === 'input' && type === 'radio') role = 'radio';
+        else if (tag === 'select') role = 'combobox';
+        else if (tag === 'textarea' || tag === 'input') role = 'textbox';
+        else role = 'element';
+      }
+
+      const name =
+        el.getAttribute('aria-label') ||
+        el.getAttribute('placeholder') ||
+        el.getAttribute('title') ||
+        el.getAttribute('alt') ||
+        el.textContent?.trim().slice(0, 80) ||
+        el.getAttribute('name') ||
+        '';
+
+      lines.push(`[${ref}] ${role} "${name}" @(${cx},${cy})` + (el.href ? ` href="${el.href}"` : ''));
+    });
+
+    return lines.length ? lines.join('\n') : 'No interactive elements found on this page.';
+  }
+
+  _getPageContent(maxChars) {
     const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD', 'FOOTER', 'NAV']);
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode: (node) => {
         const tag = node.parentElement?.tagName;
         if (skip.has(tag)) return NodeFilter.FILTER_REJECT;
         return node.textContent.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-      }
+      },
     });
     const parts = [];
     let node;
-    while ((node = walker.nextNode()) && parts.join(' ').length < 8000) {
+    while ((node = walker.nextNode()) && parts.join(' ').length < (maxChars || 5000)) {
       parts.push(node.textContent.trim());
     }
     const text = parts.join(' ').replace(/\s+/g, ' ').trim();
     return text || 'No readable text found on this page.';
-  }
-
-  _clickElement(text) {
-    const q = (text || '').toLowerCase();
-    const candidates = [...document.querySelectorAll('button, a, [role="button"], [role="link"], input[type="submit"], input[type="button"]')];
-    const match = candidates.find(el => el.textContent?.trim().toLowerCase().includes(q) || el.value?.toLowerCase().includes(q));
-    if (!match) return `Could not find a clickable element with text: "${text}"`;
-    match.click();
-    return `Clicked: "${match.textContent?.trim() || match.value}"`;
-  }
-
-  _scrollToSection(heading) {
-    const q = (heading || '').toLowerCase();
-    const headings = [...document.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]')];
-    const match = headings.find(h => h.textContent?.toLowerCase().includes(q));
-    if (!match) return `Could not find a heading matching: "${heading}"`;
-    match.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    return `Scrolled to: "${match.textContent.trim()}"`;
   }
 
   _getPageInfo() {
@@ -150,7 +251,15 @@ class HaloTools {
       url: location.href,
       title: document.title,
       description: document.querySelector('meta[name="description"]')?.content || '',
-      headings: [...document.querySelectorAll('h1, h2')].slice(0, 10).map(h => h.textContent.trim())
+      headings: [...document.querySelectorAll('h1, h2')].slice(0, 10).map((h) => h.textContent.trim()),
     });
+  }
+
+  _isVisible(el) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    return true;
   }
 }
