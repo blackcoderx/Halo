@@ -133,7 +133,7 @@ class HaloTools {
       },
       {
         name: 'save_memory',
-        description: 'Save an important fact about the user that you should remember across sessions (e.g. their name, preferences, ongoing tasks). Call this whenever you learn something significant about the user.',
+        description: 'Remember an important fact about the user or current page for future sessions. Call this AFTER completing a meaningful action (form submitted, item purchased, setting changed) or when the user shares personal info/preferences. Do NOT save trivial things like "user asked me to scroll".',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -141,8 +141,26 @@ class HaloTools {
               type: 'STRING',
               description: 'The fact or memory to persist',
             },
+            scope: {
+              type: 'STRING',
+              enum: ['page', 'global'],
+              description: '"page" = relevant only to this website, "global" = applies everywhere (user name, preferences)',
+            },
           },
           required: ['note'],
+        },
+      },
+      {
+        name: 'recall',
+        description: 'Recall what happened in past sessions on a specific website. Use when the user asks "what did I do on X?" or "do you remember when we were on Y?"',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            hostname: {
+              type: 'STRING',
+              description: 'Website hostname to recall (e.g. "x.com", "github.com"). Omit to see all.',
+            },
+          },
         },
       },
       {
@@ -172,7 +190,13 @@ class HaloTools {
 
   async execute(name, args = {}) {
     switch (name) {
-      case 'computer':
+      case 'computer': {
+        const result = await this._execCDP(name, args);
+        if (args.action === 'screenshot' && typeof result === 'string' && result.length > 500) {
+          return `Screenshot captured (${result.length} bytes)`;
+        }
+        return result;
+      }
       case 'navigate':
       case 'javascript':
         return this._execCDP(name, args);
@@ -184,7 +208,9 @@ class HaloTools {
       case 'get_page_info':
         return this._getPageInfo();
       case 'save_memory':
-        return this._saveMemory(args.note);
+        return this._saveMemory(args.note, args.scope || 'page');
+      case 'recall':
+        return this._recall(args.hostname);
       case 'clear_memory':
         return this._clearMemory();
       default:
@@ -281,11 +307,31 @@ class HaloTools {
     });
   }
 
-  async _saveMemory(note) {
+  async _saveMemory(note, scope = 'page') {
     const memory = window.__haloMemory;
     if (!memory) return 'Memory system not available';
-    await memory.saveMemory(note);
+    let hostname = null;
+    if (scope === 'page') {
+      try { hostname = new URL(location.href).hostname } catch {}
+    }
+    await memory.saveMemory(note, scope, hostname);
     return `Saved memory: ${note}`;
+  }
+
+  async _recall(hostname) {
+    const memory = window.__haloMemory;
+    if (!memory) return 'Memory system not available';
+    if (hostname) {
+      return memory.getPageContext(hostname);
+    }
+    const data = memory.data;
+    const lines = ['## All stored page memories'];
+    for (const [host, sessions] of Object.entries(data.sessionsByHost || {})) {
+      const last = sessions[0];
+      const summary = last.summary || `${last.turnCount} turns on ${last.pageTitle}`;
+      lines.push(`- ${host}: ${summary}`);
+    }
+    return lines.length > 1 ? lines.join('\n') : 'No memories stored yet.';
   }
 
   async _clearMemory() {

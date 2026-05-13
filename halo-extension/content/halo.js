@@ -306,7 +306,10 @@ class HaloSession {
       console.error("[Halo] AudioPlayer init failed:", e);
     }
 
-    // 3. Open WebSocket to Gemini
+      // 3. Record start time
+    this._sessionStartTime = Date.now();
+
+    // 4. Open WebSocket to Gemini
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${token}`;
     this.ws = new WebSocket(wsUrl);
 
@@ -324,6 +327,14 @@ class HaloSession {
   }
 
   async _sendSetup() {
+    await PromptBuilder.init()
+    const pageInfo = {
+      title: document.title,
+      url: location.href
+    }
+    const memoryContext = this.memory.getContextForPrompt(location.href)
+    const systemInstruction = PromptBuilder.build(pageInfo, memoryContext)
+
     const setup = {
       setup: {
         model: "models/gemini-3.1-flash-live-preview",
@@ -334,34 +345,7 @@ class HaloSession {
           },
         },
         systemInstruction: {
-          parts: [
-            {
-              text:
-                `You are Luffy, a helpful voice assistant embedded as a floating sprite named Squall on any web page. ` +
-                `The user is currently on: ${document.title} (${location.href}). ` +
-                `Help them by filling forms, summarizing page content, clicking elements, and guiding through tasks. ` +
-                `Be concise — your responses are spoken aloud. Keep answers under 3 sentences unless asked for more.\n\n` +
-                `TOOL USAGE GUIDE:\n` +
-                `- Use find_elements to list interactive elements with coordinates before clicking or typing.\n` +
-                `- Use computer action=click with coordinate=[x,y] to click elements.\n` +
-                `- Use computer action=type with text="..." to fill text fields. Always click the field first to focus it.\n` +
-                `- Use computer action=scroll with direction="down"/"up" and optional amount (pixels) to scroll.\n` +
-                `- Use navigate with url="back"/"forward" for history, or a full URL to go to a page.\n` +
-                `- Use get_page_content to read page text when the user asks about page content.\n` +
-                `MEMORY USAGE:\n` +
-                `- Call save_memory whenever you learn ANY of the following:\n` +
-                `  • The user's name, job, or personal details\n` +
-                `  • Their preferences (response style, verbosity, topics they like/dislike)\n` +
-                `  • An ongoing task or goal they want to accomplish across sessions\n` +
-                `  • Page-specific context they explicitly say is important\n` +
-                `  • Anything the user says "remember this" about\n` +
-                `- Do NOT save one-off requests like "search for X" or "scroll down"\n` +
-                `- Example: user says "I'm Sarah, a data scientist" → save_memory("User's name is Sarah, works as a data scientist")\n` +
-                `- Example: user says "keep answers short" → save_memory("User prefers very concise one-sentence answers")\n` +
-                `- Call clear_memory only after user explicitly confirms "yes" to your confirmation question.\n\n` +
-                this.memory.getContextString(),
-            },
-          ],
+          parts: [{ text: systemInstruction }],
         },
         tools: [{ functionDeclarations: this.tools.declarations() }],
         realtimeInputConfig: {
@@ -413,7 +397,9 @@ class HaloSession {
       this._setState("acting");
       const responses = [];
       for (const fc of data.toolCall.functionCalls) {
+        this.memory.addTurn('tool_call', null, { name: fc.name, args: fc.args })
         const result = await this.tools.execute(fc.name, fc.args);
+        this.memory.addTurn('tool_result', null, { name: fc.name, result })
         responses.push({
           id: fc.id,
           name: fc.name,
@@ -436,6 +422,9 @@ class HaloSession {
       for (const part of content.modelTurn.parts) {
         if (part.inlineData) {
           await this.player.play(part.inlineData.data);
+        }
+        if (part.text) {
+          this.memory.addTurn('assistant', part.text);
         }
       }
     }

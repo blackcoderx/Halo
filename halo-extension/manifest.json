@@ -11,7 +11,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-          "js": ["content/memory.js", "content/tools.js", "content/halo.js"],
+          "js": ["content/memory.js", "content/tools.js", "content/prompt.js", "content/halo.js"],
       "css": ["content/halo.css"],
       "run_at": "document_end"
     }
@@ -25,7 +25,8 @@
       "resources": [
         "audio-processors/capture.worklet.js",
         "audio-processors/playback.worklet.js",
-        "assets/spritesheet.webp"
+        "assets/spritesheet.webp",
+        "assets/pet.json"
       ],
       "matches": ["<all_urls>"]
     }
